@@ -5,7 +5,9 @@
  * Owner: Jorge (D04).
  */
 
-export const CENTER_ORDER = [3, 4, 2, 5, 1, 6, 0, 7];
+import { findImmediateWin, findImmediateBlock, getSafeFallback } from '../tactics.js';
+
+export { CENTER_ORDER } from '../bitboard.js';
 
 /** @type {import('../types.js').MoveStrategy} */
 export const basicStrategy = {
@@ -15,6 +17,18 @@ export const basicStrategy = {
    * @returns {import('../types.js').MoveDecision}
    */
   chooseMove(context) {
-    throw new Error('TODO(D04): implementar basicStrategy.chooseMove');
+    const start = performance.now();
+    const win = findImmediateWin(context.board, context.player, context.legalMoves);
+    const block = win.length ? [] : findImmediateBlock(context.board, context.player, context.legalMoves);
+    const column = win[0] ?? block[0] ?? getSafeFallback(context.legalMoves);
+    return {
+      column,
+      strategy: 'basic',
+      depthCompleted: win.length || block.length ? 1 : 0,
+      elapsedMs: Math.round(performance.now() - start),
+      nodesVisited: 0,
+      fallbackUsed: false,
+      score: null,
+    };
   },
 };
