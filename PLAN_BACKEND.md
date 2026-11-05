@@ -504,3 +504,14 @@ ENABLE_TELEMETRY_SSE=false
 - [ ] Práctica oficial conectada; registro de URL/commit confirmado mientras esté disponible el endpoint y worker activo.
 
 **Estado del documento:** especificación de diseño, no evidencia de implementación. Registrar benchmarks, resultados y coberturas únicamente después de ejecutarlos y verificarlos.
+
+## Delegación a la IA y verificación
+| Se delega a la IA | Cómo lo verifica un humano |
+|---|---|
+| Llenar stubs a partir de los contratos congelados (types.js, API_LOCAL.md) | Lectura del diff por el owner + `npm test` y CI en verde |
+| Pruebas unitarias e integración | Deben fallar si se rompe la regla que dicen probar (no solo "no explota") |
+| Mock del árbitro desde el OpenAPI 1.0.1 | Un caso por respuesta del contrato (200/400/401/409/423) y por regla de tiempo |
+| Proponer heurísticas | Solo se aceptan si ganan en simulación contra la versión anterior (docs/BENCHMARKS.md) |
+
+Riesgo conocido: la IA tiende a copiar soluciones de 7×6 (49 bits, centro único, paridad de filas impares). Se revisa explícitamente.
+Registro de lo que falló y cómo se detectó: `docs/AI_DECISIONS.md`.
