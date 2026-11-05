@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "bot": "node src/worker/main.js",
+    "dev:referee": "node scripts/dev-referee.js",
     "api": "node src/infrastructure/http/server.js",
     "dev:web": "npm run dev -w web",
     "build:web": "npm run build -w web",
