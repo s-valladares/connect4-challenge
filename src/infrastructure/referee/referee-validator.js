@@ -1,98 +1,53 @@
 /**
- * Validación defensiva del payload de turno (shape 1.0.1).
- * El árbitro es la autoridad: las validaciones protegen al worker de payloads
- * rotos, no lo corrigen. Regla de oro: NUNCA derivar una jugada ilegal.
- *
- * ok:false (fail duro)  → estructura inválida o sin movimientos coherentes: no jugar.
- * warnings (degradado)  → incoherencias no bloqueantes (se registran y se sigue).
- * legalMoves efectivos  → intersección entre legal_moves recibidas y las columnas
- *                         realmente no llenas según el board (defensa doble).
+ * Validación defensiva del payload de turno (shape 1.0.1):
+ * board 7×8 con valores 0/1/2, you ∈ {1,2}, legal_moves ⊆ 0..7 coherentes
+ * con columnas no llenas, deadline_ms y served_at presentes.
+ * NO asumir que los ejemplos del OpenAPI son coherentes (son ilustrativos).
+ * Ante discrepancia board vs legal_moves: registrar y reconciliar; nunca
+ * publicar columna ilegal. El árbitro es la autoridad.
  * Owner: Salva (A02).
  */
 
-import { ROWS, COLS } from '../../domain/connect4/board.js';
+import { validateBoard, playerToMove } from '../../domain/connect4/board.js';
+import { getLegalMoves, isValidColumn } from '../../domain/connect4/rules.js';
+import { replayMoves } from '../../domain/connect4/game-state.js';
+
+const REQUIRED = ['game_id', 'you', 'board', 'moves', 'legal_moves', 'deadline_ms', 'served_at'];
 
 /**
- * @param {unknown} payload Respuesta cruda de GET /api/next con status "turn".
- * @returns {{ ok: true, turn: Object, legalMoves: number[], warnings: string[] }
- *         | { ok: false, reason: string }}
+ * - ok:false (fatal) → no se puede jugar: no es turno, faltan campos, you inválido, legal_moves vacío.
+ * - ok:true → se juega. `issues` lista inconsistencias (para log) y `safeMoves`
+ *   son las columnas de legal_moves libres en el board (si no queda ninguna, legal_moves).
+ * @param {unknown} payload Respuesta cruda de GET /api/next
+ * @returns {{ ok: true, turn: Object, issues: string[], safeMoves: number[] } | { ok: false, reason: string }}
  */
 export function validateTurn(payload) {
-  const fail = (reason) => ({ ok: false, reason });
-  const warnings = [];
-
-  if (payload === null || typeof payload !== 'object') return fail('payload_no_es_objeto');
-  const turn = /** @type {Record<string, any>} */ (payload);
-
-  if (turn.status !== 'turn') return fail(`status_inesperado:${String(turn.status)}`);
-  if (typeof turn.game_id !== 'string' || turn.game_id === '') return fail('game_id_invalido');
-  if (turn.you !== 1 && turn.you !== 2) return fail('you_invalido');
-
-  const { board } = turn;
-  if (!Array.isArray(board) || board.length !== ROWS) return fail('board_filas_invalidas');
-  for (const row of board) {
-    if (!Array.isArray(row) || row.length !== COLS) return fail('board_columnas_invalidas');
-    for (const cell of row) {
-      if (cell !== 0 && cell !== 1 && cell !== 2) return fail('board_valores_invalidos');
-    }
+  if (!payload || payload.status !== 'turn') return { ok: false, reason: 'No es un turno.' };
+  const missing = REQUIRED.filter((k) => !(k in payload));
+  if (missing.length) return { ok: false, reason: `Faltan campos: ${missing.join(', ')}.` };
+  if (payload.you !== 1 && payload.you !== 2) return { ok: false, reason: `you inválido: ${payload.you}.` };
+  if (!Array.isArray(payload.legal_moves) || payload.legal_moves.length === 0) {
+    return { ok: false, reason: 'legal_moves vacío: no se emite jugada.' };
   }
+  const legal = payload.legal_moves.filter(isValidColumn);
+  if (legal.length === 0) return { ok: false, reason: 'legal_moves sin columnas válidas (0..7).' };
 
-  if (!Array.isArray(turn.legal_moves)) return fail('legal_moves_invalido');
-  const received = [...new Set(turn.legal_moves)];
-  for (const col of received) {
-    if (!Number.isInteger(col) || col < 0 || col >= COLS) return fail('legal_moves_fuera_de_rango');
-  }
+  const issues = [];
+  if (legal.length !== payload.legal_moves.length) issues.push('legal_moves trae columnas fuera de 0..7 (ignoradas).');
+  const v = validateBoard(payload.board);
+  if (!v.valid) return { ok: true, turn: payload, issues: [...issues, ...v.errors], safeMoves: legal };
 
-  // Defensa doble: columnas legales según el board (fila superior vacía).
-  const localLegal = [];
-  for (let col = 0; col < COLS; col += 1) {
-    if (board[ROWS - 1][col] === 0) localLegal.push(col);
+  const free = getLegalMoves(payload.board);
+  const full = legal.filter((c) => !free.includes(c));
+  if (full.length) issues.push(`legal_moves incluye columnas llenas según el tablero: ${full.join(',')}`);
+  const toMove = playerToMove(payload.board);
+  if (toMove !== payload.you) issues.push(`Por el conteo de fichas le toca al jugador ${toMove}, pero you=${payload.you}.`);
+  try {
+    const rebuilt = replayMoves(payload.moves);
+    if (JSON.stringify(rebuilt.board) !== JSON.stringify(payload.board)) issues.push('El tablero no coincide con moves.');
+  } catch (e) {
+    issues.push(`moves no es una secuencia válida: ${e.message}`);
   }
-  const effective = localLegal.filter((col) => received.includes(col));
-
-  if (
-    received.length !== localLegal.length ||
-    !received.every((col) => localLegal.includes(col))
-  ) {
-    warnings.push('legal_moves_discrepancia_con_board');
-  }
-  if (effective.length === 0) return fail('sin_movimientos_legales_coherentes');
-
-  // Coherencias no bloqueantes: gravedad y paridad de fichas.
-  for (let col = 0; col < COLS; col += 1) {
-    for (let row = 1; row < ROWS; row += 1) {
-      if (board[row][col] !== 0 && board[row - 1][col] === 0) {
-        warnings.push('gravedad_incoherente');
-        break;
-      }
-    }
-    if (warnings.includes('gravedad_incoherente')) break;
-  }
-  let count1 = 0;
-  let count2 = 0;
-  for (const row of board) {
-    for (const cell of row) {
-      if (cell === 1) count1 += 1;
-      else if (cell === 2) count2 += 1;
-    }
-  }
-  if (count1 - count2 !== 0 && count1 - count2 !== 1) warnings.push('paridad_incoherente');
-
-  // Cruces board↔moves↔you (el ejemplo ilustrativo del PDF falla justo aquí).
-  if (Array.isArray(turn.moves) && turn.moves.length !== count1 + count2) {
-    warnings.push('moves_incoherentes_con_board');
-  }
-  const expectedDiff = turn.you === 2 ? 1 : 0; // si nos toca como 2, el 1 ya jugó una más
-  if (count1 - count2 !== expectedDiff) {
-    warnings.push('you_incoherente_con_paridad');
-  }
-
-  if (!Number.isInteger(turn.deadline_ms) || turn.deadline_ms <= 0) {
-    warnings.push('deadline_ms_ausente_o_invalido'); // el orquestador usará presupuesto conservador
-  }
-  if (typeof turn.served_at !== 'string' || Number.isNaN(Date.parse(turn.served_at))) {
-    warnings.push('served_at_ausente_o_invalido');
-  }
-
-  return { ok: true, turn, legalMoves: effective, warnings };
+  const safe = legal.filter((c) => free.includes(c));
+  return { ok: true, turn: payload, issues, safeMoves: safe.length ? safe : legal };
 }

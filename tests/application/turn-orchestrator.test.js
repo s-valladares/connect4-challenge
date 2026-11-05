@@ -1,96 +1,45 @@
+/** TurnOrchestrator (A03, Salva): presupuesto, fallback y legalidad antes de entregar. */
 import { describe, it, expect } from 'vitest';
-import {
-  decideTurn,
-  computeBudgetMs,
-  pickFallbackColumn,
-} from '../../src/application/turn-orchestrator.js';
-import { createBoard } from '../../src/domain/connect4/board.js';
+import { computeBudget, decideTurn } from '../../src/application/turn-orchestrator.js';
+import { turnFromMoves } from '../fixtures/turns.js';
 
-const NOW = Date.parse('2026-11-05T15:00:00.000Z');
+describe('computeBudget', () => {
+  it('tope = SEARCH_BUDGET_MS, reserva 1.000 ms y descuenta lo ya usado', () => {
+    expect(computeBudget({ deadline_ms: 3000 }, 0, { now: () => 0 })).toBe(1500);
+    expect(computeBudget({ deadline_ms: 3000 }, 0, { now: () => 1500 })).toBe(500);
+    expect(computeBudget({}, 0, { now: () => 5000 })).toBe(50);
+    expect(computeBudget({ deadline_ms: 3000 }, 0, { budgetMs: 1700, now: () => 0 })).toBe(1700);
+  });
+});
 
-function validatedTurn(overrides = {}) {
-  return {
-    turn: {
-      status: 'turn',
-      game_id: 'g_orq',
-      you: 1,
-      board: createBoard(),
-      deadline_ms: 3000,
-      served_at: new Date(NOW).toISOString(),
-      ...overrides.turn,
-    },
-    legalMoves: overrides.legalMoves ?? [0, 1, 2, 3, 4, 5, 6, 7],
-    warnings: [],
-  };
-}
-
-describe('turn-orchestrator (A03)', () => {
-  it('pickFallbackColumn prefiere el centro y respeta legalMoves', () => {
-    expect(pickFallbackColumn([0, 1, 2, 3, 4, 5, 6, 7])).toBe(3);
-    expect(pickFallbackColumn([0, 5, 7])).toBe(5);
-    expect(pickFallbackColumn([7])).toBe(7);
+describe('decideTurn', () => {
+  it('usa el engine real y devuelve columna legal con su decisión', async () => {
+    const { column, decision } = await decideTurn(turnFromMoves([3, 3, 4, 4, 5, 5]), { budgetMs: 100 });
+    expect([2, 6]).toContain(column);
+    expect(decision.strategy).toBe('search');
   });
 
-  it('computeBudgetMs descuenta transcurrido y margen, con tope y piso', () => {
-    const turn = { deadline_ms: 3000, served_at: new Date(NOW).toISOString() };
-    // recién servido: 3000 - 0 - 800 = 2200 → tope 1500
-    expect(computeBudgetMs(turn, { now: NOW, maxBudgetMs: 1500 })).toBe(1500);
-    // 2s después: 3000 - 2000 - 800 = 200
-    expect(computeBudgetMs(turn, { now: NOW + 2000, maxBudgetMs: 1500 })).toBe(200);
-    // casi vencido: piso de 50
-    expect(computeBudgetMs(turn, { now: NOW + 2960, maxBudgetMs: 1500 })).toBe(50);
-    // served_at ilegible: asume 0 transcurrido
-    expect(computeBudgetMs({ deadline_ms: 3000, served_at: 'x' }, { now: NOW, maxBudgetMs: 1500 })).toBe(1500);
+  it('respeta legalMoves seguros de validateTurn', async () => {
+    const t = turnFromMoves([]);
+    const { column } = await decideTurn(t, { legalMoves: [0, 7], budgetMs: 50 });
+    expect([0, 7]).toContain(column);
   });
 
-  it('usa la decisión del engine cuando es legal', async () => {
-    const chooseMove = (context) => ({
-      column: 5,
-      strategy: 'search',
-      depthCompleted: 4,
-      elapsedMs: 10,
-      nodesVisited: 100,
-      fallbackUsed: false,
-      score: 42,
-    });
-    const { column, decision } = await decideTurn(validatedTurn(), { chooseMove, now: () => NOW });
-    expect(column).toBe(5);
-    expect(decision.fallbackUsed).toBe(false);
+  it('si el engine lanza: fallback legal inmediato', async () => {
+    const r = await decideTurn(turnFromMoves([]), { chooseMove: () => { throw new Error('x'); } });
+    expect(r).toMatchObject({ column: 3, decision: { fallbackUsed: true, error: 'x' } });
   });
 
-  it('pasa al engine el presupuesto y el contexto correctos', async () => {
-    let received;
-    const chooseMove = (context) => {
-      received = context;
-      return { column: context.legalMoves[0], strategy: 's', depthCompleted: 1, elapsedMs: 1, nodesVisited: 1, fallbackUsed: false, score: 0 };
-    };
-    await decideTurn(validatedTurn({ legalMoves: [2, 3] }), { chooseMove, now: () => NOW, maxBudgetMs: 1200 });
-    expect(received.player).toBe(1);
-    expect(received.legalMoves).toEqual([2, 3]);
-    expect(received.timeBudgetMs).toBe(1200);
-    expect(received.gameId).toBe('g_orq');
+  it('si el engine devuelve ilegal: se corrige antes de entregar', async () => {
+    const r = await decideTurn(turnFromMoves([]), { chooseMove: () => ({ column: 42, fallbackUsed: false }) });
+    expect(r.column).toBe(3);
+    expect(r.decision.fallbackUsed).toBe(true);
   });
 
-  it('cae al fallback si el engine lanza', async () => {
-    const chooseMove = () => { throw new Error('engine roto'); };
-    const { column, decision } = await decideTurn(validatedTurn(), { chooseMove, now: () => NOW });
-    expect(column).toBe(3); // central
-    expect(decision.fallbackUsed).toBe(true);
-    expect(decision.strategy).toContain('engine_error');
-  });
-
-  it('cae al fallback si el engine devuelve columna ilegal', async () => {
-    const chooseMove = () => ({ column: 0, strategy: 'rota', depthCompleted: 1, elapsedMs: 1, nodesVisited: 1, fallbackUsed: false, score: 0 });
-    const { column, decision } = await decideTurn(validatedTurn({ legalMoves: [3, 4] }), {
-      chooseMove,
-      now: () => NOW,
-    });
-    expect(column).toBe(3);
-    expect(decision.fallbackUsed).toBe(true);
-    expect(decision.strategy).toContain('decision_ilegal');
-  });
-
-  it('lanza si legalMoves está vacío (invariante: no inventar jugadas)', async () => {
-    await expect(decideTurn(validatedTurn({ legalMoves: [] }))).rejects.toThrow(/legalMoves vacío/);
+  it('pasa al engine el presupuesto local y quiénes somos', async () => {
+    let seen;
+    await decideTurn(turnFromMoves([3]), { chooseMove: (ctx, s) => { seen = { ctx, s }; return { column: 3 }; }, now: () => 0, budgetMs: 1200 });
+    expect(seen.ctx).toMatchObject({ player: 2, timeBudgetMs: 1200, gameId: 'g_fixture' });
+    expect(seen.s).toBe('search');
   });
 });

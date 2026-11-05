@@ -195,6 +195,14 @@ const server = createServer(async (req, res) => {
     return json(res, 200, { ok: true, phase: 'practice', time: new Date().toISOString() });
   }
 
+  // El worker verifica equipo y versión del contrato al arrancar (P2).
+  if (req.method === 'GET' && url.pathname === '/api/me') {
+    return json(res, 200, { team: { id: 'dev', name: 'Equipo 5 (dev)' }, standing: null, pending_turns: [], submission: null, phase: 'practice' });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/openapi.json') {
+    return json(res, 200, { info: { version: '1.0.1' } });
+  }
+
   return json(res, 404, { ok: false, error: 'not_found', message: req.url });
 });
 
