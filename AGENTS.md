@@ -56,6 +56,6 @@ Contratos congelados: `src/engine/types.js` (`MoveContext`/`MoveDecision`) y
 7. Mantener commits reales y comprensibles; no reescribir historia de planes.
 
 ## APIs
-- Oficial: únicamente endpoints del OpenAPI 1.0.1 / contrato servido por el árbitro.
+- Oficial: únicamente endpoints del OpenAPI 1.1.0 servido por el árbitro (`docs/arbitro-openapi.json`).
 - Interna: JSON local independiente del árbitro; validación y errores consistentes.
 - SSE solo para monitoreo visual si se implementa; NO reemplaza long polling oficial.
