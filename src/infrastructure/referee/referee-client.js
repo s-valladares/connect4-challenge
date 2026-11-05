@@ -1,108 +1,76 @@
 /**
  * Cliente HTTP del árbitro oficial (OpenAPI 1.0.1). SOLO transporte:
  * Bearer token, timeouts de red, clasificación de errores. No decide jugadas.
+ * Base URL y token vienen de parámetros (los lee el worker desde env).
  * Owner: Salva (A01).
- *
- * Toda llamada retorna un resultado clasificado (nunca lanza por red/HTTP):
- *   { kind, status, data, error }
- *   kind: 'success'         2xx con JSON válido
- *       | 'rejected'        400 (data.error: illegal_move | timeout | validation)
- *       | 'auth'            401 token inválido → alerta, no reintentar a ciegas
- *       | 'conflict'        409 not_your_turn/unknown_game → NO penaliza
- *       | 'locked'          423 practice/submission cerradas
- *       | 'http_error'      otros status
- *       | 'network'         fallo de conexión (DNS, reset, offline)
- *       | 'network_timeout' se agotó el timeout local del request
- *       | 'parse'           respuesta no-JSON
- *
- * IMPORTANTE: un postMove con kind network/network_timeout NO se reintenta:
- * el árbitro pudo haberlo procesado. Reconciliar vía getNext/getMe.
  */
 
-const DEFAULT_WAIT_SECONDS = 20;
+/** Error clasificado: network | http_400 | http_401 | http_409 | http_423 | http_other | parse. */
+export class RefereeError extends Error {
+  constructor(kind, message, { status = null, body = null } = {}) {
+    super(message);
+    this.name = 'RefereeError';
+    this.kind = kind;
+    this.status = status;
+    this.body = body;
+  }
+}
+
+const KIND_BY_STATUS = { 400: 'http_400', 401: 'http_401', 409: 'http_409', 423: 'http_423' };
 
 /**
- * @param {{
- *   baseUrl: string,
- *   token: string,
- *   fetchImpl?: typeof fetch,     // inyectable para tests/mock
- *   postTimeoutMs?: number,       // timeout local de POST/PUT/GET cortos
- *   extraWaitMs?: number,         // margen sobre `wait` del long polling
- * }} config
+ * @typedef {Object} RefereeClient
+ * @property {(waitSeconds?: number) => Promise<Object>} getNext  GET /api/next?wait=N
+ * @property {(gameId: string, column: number) => Promise<Object>} postMove  POST /api/move
+ * @property {(opponent?: string, first?: 1|2) => Promise<Object>} createPractice  POST /api/practice
+ * @property {() => Promise<Object>} getMe  GET /api/me
+ * @property {(repoUrl: string, commit: string) => Promise<Object>} registerSubmission  PUT /api/me/submission
+ * @property {(gameId: string) => Promise<Object>} getGame  GET /api/games/{id} (reconciliar POST dudoso)
+ * @property {() => Promise<Object>} getHealth  GET /api/health
+ * @property {() => Promise<Object>} getOpenApi  GET /api/openapi.json
  */
-export function createRefereeClient({
-  baseUrl,
-  token,
-  fetchImpl = fetch,
-  postTimeoutMs = 10_000,
-  extraWaitMs = 10_000,
-}) {
-  if (!baseUrl || !token) {
-    throw new Error('createRefereeClient: baseUrl y token son requeridos');
-  }
-  const base = baseUrl.replace(/\/+$/, '');
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
 
-  async function request(method, path, { body, timeoutMs } = {}) {
+/**
+ * @param {{ baseUrl: string, token: string, fetchImpl?: typeof fetch, postTimeoutMs?: number }} config
+ * @returns {RefereeClient}
+ */
+export function createRefereeClient({ baseUrl, token, fetchImpl = fetch, postTimeoutMs = 4000 }) {
+  if (!baseUrl) throw new Error('Falta ARBITRO_URL.');
+  const base = baseUrl.replace(/\/+$/, '');
+
+  async function request(method, path, { body, timeoutMs = 10_000 } = {}) {
     let res;
     try {
       res = await fetchImpl(`${base}${path}`, {
         method,
-        headers,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs ?? postTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
-    } catch (error) {
-      const isTimeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-      return { kind: isTimeout ? 'network_timeout' : 'network', status: null, data: null, error };
+    } catch (e) {
+      throw new RefereeError('network', `Error de red en ${method} ${path}: ${e.message}`);
     }
-
-    let data = null;
+    let json;
     try {
-      data = await res.json();
-    } catch (error) {
-      return { kind: 'parse', status: res.status, data: null, error };
+      json = await res.json();
+    } catch {
+      throw new RefereeError('parse', `Respuesta no JSON en ${method} ${path} (HTTP ${res.status}).`, { status: res.status });
     }
-
-    if (res.ok) return { kind: 'success', status: res.status, data, error: null };
-    if (res.status === 401) return { kind: 'auth', status: 401, data, error: null };
-    if (res.status === 409) return { kind: 'conflict', status: 409, data, error: null };
-    if (res.status === 400) return { kind: 'rejected', status: 400, data, error: null };
-    if (res.status === 423) return { kind: 'locked', status: 423, data, error: null };
-    return { kind: 'http_error', status: res.status, data, error: null };
+    if (res.status >= 200 && res.status < 300) return json;
+    const kind = KIND_BY_STATUS[res.status] ?? 'http_other';
+    throw new RefereeError(kind, `${method} ${path} → HTTP ${res.status} ${json?.error ?? ''}`.trim(), { status: res.status, body: json });
   }
 
   return {
-    /** Long polling: GET /api/next?wait=N (máx 25). Timeout local = wait + margen. */
-    getNext(waitSeconds = DEFAULT_WAIT_SECONDS) {
-      return request('GET', `/api/next?wait=${waitSeconds}`, {
-        timeoutMs: waitSeconds * 1000 + extraWaitMs,
-      });
-    },
-
-    /** POST /api/move. UNA sola vez por turno; nunca reintentar a ciegas. */
-    postMove(gameId, column) {
-      return request('POST', '/api/move', { body: { game_id: gameId, column } });
-    },
-
-    /** POST /api/practice contra casa-aleatorio|casa-basico. */
-    createPractice(opponent = 'casa-basico', first = 1) {
-      return request('POST', '/api/practice', { body: { opponent, first } });
-    },
-
-    /** GET /api/me: valida token, fase y turnos pendientes. */
-    getMe() {
-      return request('GET', '/api/me');
-    },
-
-    /** PUT /api/me/submission: registra repo + hash (hasta 09:45). */
-    registerSubmission(repoUrl, commit) {
-      return request('PUT', '/api/me/submission', {
-        body: { repo_url: repoUrl, commit },
-      });
-    },
+    // Timeout local mayor que `wait` (p. ej. 27 s para 20 s): el long polling no es un error.
+    getNext: (waitSeconds = 20) => request('GET', `/api/next?wait=${waitSeconds}`, { timeoutMs: (waitSeconds + 7) * 1000 }),
+    // El POST de jugada NUNCA se repite a ciegas tras timeout (pudo llegar): lo decide el worker.
+    postMove: (gameId, column) => request('POST', '/api/move', { body: { game_id: gameId, column }, timeoutMs: postTimeoutMs }),
+    createPractice: (opponent = 'casa-basico', first = 1) => request('POST', '/api/practice', { body: { opponent, first } }),
+    getMe: () => request('GET', '/api/me'),
+    registerSubmission: (repoUrl, commit) => request('PUT', '/api/me/submission', { body: { repo_url: repoUrl, commit } }),
+    getGame: (gameId) => request('GET', `/api/games/${encodeURIComponent(gameId)}`),
+    getHealth: () => request('GET', '/api/health'),
+    getOpenApi: () => request('GET', '/api/openapi.json'),
   };
 }
