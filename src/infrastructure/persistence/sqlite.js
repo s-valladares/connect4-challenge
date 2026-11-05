@@ -6,10 +6,20 @@
  * Owner: Juan (B03).
  */
 
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import Database from 'better-sqlite3';
+import { migrate } from './migrations.js';
+
 /**
- * @param {string} dbPath Ruta del archivo .db (de env DB_PATH; crear carpeta si falta).
+ * @param {string} dbPath Ruta del archivo .db (de env DB_PATH; crea la carpeta si falta) o ':memory:' en pruebas.
  * @returns {import('better-sqlite3').Database}
  */
-export function openDatabase(dbPath) {
-  throw new Error('TODO(B03): abrir BD, PRAGMA journal_mode=WAL, correr migraciones');
+export function openDatabase(dbPath = ':memory:') {
+  if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma('foreign_keys = ON');
+  if (dbPath !== ':memory:') db.pragma('journal_mode = WAL');
+  migrate(db);
+  return db;
 }
