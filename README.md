@@ -43,7 +43,7 @@ Ver `.env.example`. El token del equipo **nunca** se commitea ni aparece en logs
 
 | Variable | Uso | Default |
 |---|---|---|
-| `ARBITRO_URL`, `TEAM_TOKEN` | Árbitro oficial (se entregan a las 8:00) | — |
+| `ARBITRO_URL`, `TEAM_TOKEN` | Árbitro oficial: `https://ai-challenge.yompi.com` y el token del equipo | — |
 | `SEARCH_BUDGET_MS` | Presupuesto de búsqueda del bot **y** de la API local | 1500 |
 | `PORT`, `DB_PATH` | API local | 3000, `./data/local.db` |
 | `POLL_WAIT_SEC`, `BOT_STRATEGY` | Opcionales del worker | 20, `search` |

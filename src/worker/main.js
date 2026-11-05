@@ -57,7 +57,7 @@ try {
 
 const spec = await client.getOpenApi().catch(() => null);
 const version = spec?.info?.version;
-if (version && version !== '1.0.1') log.warn('openapi_version_changed', { version, action: 'revisar referee-client.js' });
+if (version && version !== '1.1.0') log.warn('openapi_version_changed', { version, action: 'revisar referee-client.js' });
 
 const metrics = createMetrics();
 setInterval(() => log.info('metrics', metrics.snapshot()), 60_000).unref();
