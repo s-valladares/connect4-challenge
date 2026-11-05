@@ -71,8 +71,9 @@ describe('turn-orchestrator (A03)', () => {
     expect(received.gameId).toBe('g_orq');
   });
 
-  it('cae al fallback si el engine lanza (estado actual: stubs TODO)', async () => {
-    const { column, decision } = await decideTurn(validatedTurn(), { now: () => NOW });
+  it('cae al fallback si el engine lanza', async () => {
+    const chooseMove = () => { throw new Error('engine roto'); };
+    const { column, decision } = await decideTurn(validatedTurn(), { chooseMove, now: () => NOW });
     expect(column).toBe(3); // central
     expect(decision.fallbackUsed).toBe(true);
     expect(decision.strategy).toContain('engine_error');
