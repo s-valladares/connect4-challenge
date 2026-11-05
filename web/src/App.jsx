@@ -1,9 +1,9 @@
 /**
  * Raíz de la app. Owner: América (F01–F05). Ver PLAN_FRONTEND.md.
  *
- * Componentes previstos (crear en ./components y ./pages):
+ * Componentes (./components y ./pages):
  *   GamePage, GameBoard, Column, Cell, GameControls,
- *   TurnIndicator, GameResult, ConnectionStatus, GameHistory (opcional)
+ *   TurnIndicator, GameResult, ConnectionStatus, GameHistory
  *
  * Reglas de oro:
  * - La FILA 0 del board es la INFERIOR: dibujar invertido (fila 6 arriba).
@@ -12,11 +12,19 @@
  * - No mostrar victoria antes de que el servidor la confirme.
  */
 
-export default function App() {
+import GamePage from './pages/GamePage.jsx';
+import styles from './styles/game.module.css';
+
+export default function App({ api }) {
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24 }}>
-      <h1>Cuatro en Línea 8×7</h1>
-      <p>TODO(F01, América): tablero interactivo. Contrato API en docs/API_LOCAL.md.</p>
-    </main>
+    <div className={styles.shell}>
+      <header className={styles.header}>
+        <p className={styles.eyebrow}>Challenge IA · Equipo 5</p>
+        <h1 className={styles.title}>Cuatro en Línea <span>8×7</span></h1>
+      </header>
+      <main>
+        <GamePage api={api} />
+      </main>
+    </div>
   );
 }

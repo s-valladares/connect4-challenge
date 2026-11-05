@@ -1,0 +1,15 @@
+:root {
+  --color-background: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-text: #172033;
+  --color-muted: #5e6a7f;
+  --color-line: #d8dee9;
+  --color-board: #2563b8;
+  --color-player-one: #f5c84b;
+  --color-player-two: #ed6b64;
+  --color-empty: #e8edf5;
+  --color-success: #187b54;
+  --color-danger: #b83d3d;
+  --color-win: #172033;
+  --radius-card: 16px;
+}
