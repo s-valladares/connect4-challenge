@@ -26,9 +26,13 @@ export default defineConfig({
         'web/src/main.jsx',
       ],
       reporter: ['text', 'html', 'json-summary'],
-      // TODO(Q06, Alex): activar thresholds cuando el core esté implementado.
-      // Las bases exigen >=70% en reglas y algoritmo (src/domain, src/engine).
-      // thresholds: { lines: 70, functions: 70, branches: 70, statements: 70 },
+      // Q06 (Alex): las bases exigen >= 70 % en reglas y algoritmo; meta del equipo: 85 %.
+      // Si la cobertura baja de estos números, `npm test` falla (y el CI del PR también).
+      thresholds: {
+        lines: 70, functions: 70, branches: 70, statements: 70,
+        'src/domain/**': { lines: 85, functions: 85, branches: 85, statements: 85 },
+        'src/engine/**': { lines: 85, functions: 85, branches: 80, statements: 85 },
+      },
     },
   },
 });
