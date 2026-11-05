@@ -70,6 +70,52 @@
 - **Cómo se detectó:** lectura del esquema en el OpenAPI frente al código del mock, y `diff` del `/api/openapi.json` servido
   por el árbitro contra el archivo 1.0.1.
 - **Corrección:** parche para `tests/referee/mock-referee-server.js` y su prueba (arreglo plano + `Array.isArray`), con
-  128/128 pruebas en verde en la copia integrada. Se entrega a QA para el PR de P5 junto con `docs/arbitro-openapi.json` 1.1.0.
+  128/128 pruebas en verde en la copia integrada. Aplicado en el PR de P5 (`feat/p5-mock-training`) junto con
+  `docs/arbitro-openapi.json` 1.1.0.
 
-### 7. (pendiente — integrante del equipo, jueves)
+> Entradas 7–10: casos reales de la integración del jueves (07:00–08:00). Cada uno está en un módulo distinto; su
+> responsable lo revisa y lo completa con su propio prompt si lo tiene.
+
+### 7. Una prueba del orquestador dependía de que el motor siguiera sin implementar
+- **Fecha/tarea:** 05/11 · A03 `turn-orchestrator` (Salva) al integrar P1 (Jorge).
+- **Herramienta y prompt:** prueba del scaffold armado con IA, titulada "cae al fallback si el engine lanza (estado actual:
+  stubs TODO)".
+- **Qué devolvió:** una prueba que **no inyectaba** un motor roto; confiaba en que el stub `TODO` de `engine-service` lanzara.
+- **Error o riesgo detectado:** en cuanto entró el motor real, la prueba falló (62/63), aunque el código estaba bien. Probaba
+  el estado del repo, no el comportamiento.
+- **Cómo se detectó:** se corrió `npm test` con P1 aplicado sobre `main` antes de abrir el PR.
+- **Corrección aplicada:** la prueba inyecta `chooseMove` que lanza (`'engine roto'`); entró con el PR #4 → 63/63.
+
+### 8. La API dependía de una función del logger que todavía no existía en `main`
+- **Fecha/tarea:** 05/11 · B05 API local (Juan), PR #3.
+- **Herramienta y prompt:** Claude Code (sesión de América): "revisa qué falta para mergear el PR #3".
+- **Qué devolvió:** la prueba `error inesperado → 500 sin stack trace` usaba `configureLogger`, que solo existía en el
+  logger de la versión de referencia; el logger escrito a mano en `main` solo exportaba `log()`.
+- **Error o riesgo detectado:** el PR #3 fallaba 1/97 sobre `main`. Las guías por rol se generaron con IA asumiendo que
+  todas las piezas venían del mismo repositorio de referencia; al mezclar código escrito a mano con código de los anexos,
+  las piezas no encajaban.
+- **Cómo se detectó:** merge de prueba de P3 sobre `main` y `npm test`.
+- **Corrección aplicada:** el PR #6 (worker de referencia) trajo el logger con `createLogger`/`configureLogger` y redacción
+  del token; P3 se actualizó con `main` → 105/105 y se mergeó.
+
+### 9. Las pruebas de integración del anexo de QA importaban un worker que no estaba en el repo
+- **Fecha/tarea:** 05/11 · Q05 pruebas de integración y mock (Edgar), P5.
+- **Herramienta y prompt:** código del anexo de QA, generado con IA junto con la guía del rol.
+- **Qué devolvió:** `tests/integration/worker-referee.test.js` y `tests/referee/mock-referee.test.js` importan
+  `src/worker/run-worker.js` y `tests/fixtures/turns.js`, que pertenecen al worker de referencia (P2).
+- **Error o riesgo detectado:** mientras `main` tenía el primer worker escrito a mano, esas pruebas no cargaban, y el
+  README ya prometía `npm run mock`, `npm run train` y `npm run benchmark`, que en `main` eran stubs.
+- **Cómo se detectó:** se aplicó el anexo de QA sobre `main` en una copia aparte y se corrió `npm test`.
+- **Corrección aplicada:** con el worker de referencia en `main` (#6), P5 entra limpio: 128/128, `npm run mock`,
+  `train` y `benchmark` funcionan; `docs/BENCHMARKS.md` se regeneró con una corrida real.
+
+### 10. Al pasar a la versión 1.1.0 del contrato, la IA actualizó la prueba pero no el mock en memoria
+- **Fecha/tarea:** 05/11 · P5, ajuste al OpenAPI 1.1.0 (América con Claude Code).
+- **Herramienta y prompt:** Claude Code: "aplica el contrato 1.1.0 al mock y sus pruebas".
+- **Qué devolvió:** un reemplazo de texto que cambió **las dos** aserciones `version === '1.0.1'` a `'1.1.0'`, pero
+  `tests/referee/mock-referee.js` (mock en memoria) seguía devolviendo `'1.0.1'`.
+- **Error o riesgo detectado:** 1/128 en rojo. El cambio era mecánico y la IA no revisó de dónde salía cada valor.
+- **Cómo se detectó:** se corrió la suite completa antes del commit, no solo el archivo editado.
+- **Corrección aplicada:** el mock en memoria devuelve `'1.1.0'` → 128/128.
+
+### 11. (pendiente — cada integrante agrega el suyo con el mismo formato)

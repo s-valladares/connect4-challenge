@@ -28,6 +28,8 @@
 | Bot del torneo | `npm run bot` | `src/worker/main.js` | Long polling `GET /api/next?wait=20` → `decideTurn` → `POST /api/move` |
 | API local | `npm run api` | `src/infrastructure/http/server.js` | `/api/local-games` para la web, SQLite en `DB_PATH` |
 | Web | `npm run dev:web` | `web/` (Vite) | React; proxy `/api` → `localhost:3000` |
+| Árbitro falso | `npm run mock` | `tests/referee/run-mock.js` | Árbitro 1.1.0 en `localhost:4100` para ensayar sin internet |
+| Self-play / benchmarks | `npm run train` · `npm run benchmark` | `src/training/` | Partidas entre estrategias con semilla; genera `docs/BENCHMARKS.md` |
 
 El bot y la API son procesos distintos, pero llaman al **mismo** `chooseMove` con el **mismo** presupuesto
 (`SEARCH_BUDGET_MS`), como piden las bases: el algoritmo del torneo y el de la app son el mismo código. El worker no
@@ -118,24 +120,27 @@ necesitó cambios.
 
 ## 4. Pruebas y cobertura
 
-`npm test` corre todas las suites con cobertura V8: **10 archivos, 105 pruebas**, todas en verde (incluye la API local
-del PR #3). El CI de GitHub corre `npm test` y `npm run build:web` en cada PR y en cada push a `main`.
+`npm test` corre todas las suites con cobertura V8: **14 archivos, 128 pruebas**, todas en verde. Tiene umbrales
+(`vitest.config.js`): 70 % global y 85 % en `src/domain` y `src/engine` (80 % de ramas en engine); si la cobertura
+baja, `npm test` falla. El CI de GitHub corre `npm test` y `npm run build:web` en cada PR y en cada push a `main`.
 
 | Carpeta | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|
 | src/domain/connect4 (reglas) | 96.4 | 98.9 | 95.0 | 96.3 |
 | src/engine (algoritmo) | 92.0 | 95.0 | 88.6 | 92.0 |
 | src/engine/strategies | 100 | 100 | 100 | 100 |
-| src/application | 100 | 98.1 | 93.8 | 100 |
-| src/infrastructure/http | 100 | 95.5 | 100 | 100 |
-| src/infrastructure/persistence | 93.9 | 95.7 | 90.0 | 93.9 |
+| src/application | 100 | 98.2 | 93.8 | 100 |
+| src/infrastructure/http | 100 | 95.7 | 100 | 100 |
+| src/infrastructure/persistence | 100 | 96.6 | 100 | 100 |
 | src/infrastructure/referee | 100 | 98.1 | 100 | 100 |
-| src/worker | 98.9 | 96.0 | 87.5 | 98.9 |
-| web/src (todas) | 98.6–100 | 83.3–100 | 87.5–100 | 98.6–100 |
-| **Total** | **96.9** | **96.2** | **93.3** | **96.9** |
+| src/training | 100 | 91.3 | 100 | 100 |
+| src/worker | 98.9 | 96.5 | 93.8 | 98.9 |
+| web/src (todas) | 98.6–100 | 83.3–100 | 91.7–100 | 98.6–100 |
+| **Total** | **97.6** | **96.0** | **95.3** | **97.6** |
 
 Las bases piden ≥ 70 % en reglas y algoritmo: se cumple con margen. Fuera de cobertura (solo leen `.env` y llaman
-módulos probados): `src/worker/main.js`, `src/infrastructure/http/server.js` y `web/src/main.jsx`.
+módulos probados): `src/worker/main.js`, `src/infrastructure/http/server.js`, `src/training/{self-play,benchmark}.js`
+y `web/src/main.jsx`.
 
 Qué cubren las pruebas, según lo que piden las bases:
 - **Reglas** (`tests/domain/`): caída de fichas, jugadas legales, las cuatro direcciones de victoria y empate.
@@ -145,9 +150,13 @@ Qué cubren las pruebas, según lo que piden las bases:
   400/401/409 y errores de red, con el árbitro simulado.
 - **API y web** (`tests/infrastructure/`, `tests/application/`, `tests/web/`): contrato HTTP, doble clic, recuperación
   tras recargar y estados de la interfaz.
+- **Integración** (`tests/integration/`): worker ↔ árbitro mock por HTTP (gana a `casa-basico` abriendo y sin abrir,
+  reconcilia un POST cuya respuesta se pierde, sin timeouts con 800 ms de latencia), web ↔ API y estabilidad del
+  engine en 120 partidas con semilla.
 
-**Ensayo del worker por HTTP** (05/11, contra el árbitro simulado de la versión de referencia, 4 partidas de liga + 2
-prácticas contra `casa-basico`): 35 jugadas en 45 s, 0 fallbacks, 0 errores, profundidad 11–17 por jugada.
+**Ensayo del worker por HTTP** (05/11, contra `npm run mock`, 4 partidas de liga + 2 prácticas contra `casa-basico`):
+35 jugadas en 45 s, 0 fallbacks, 0 errores, profundidad 11–17 por jugada. Benchmarks reales y reproducibles (semilla y
+comando) en [`BENCHMARKS.md`](BENCHMARKS.md): `search` le gana 20/20 a `basic` y a `random`, con 0 jugadas ilegales.
 
 ## 5. Decisiones y desviaciones del plan
 
@@ -167,8 +176,8 @@ prácticas contra `casa-basico`): 35 jugadas en 45 s, 0 fallbacks, 0 errores, pr
 | 05/11 | Contrato del árbitro 1.1.0 en vez de 1.0.1 | Es el que sirve el árbitro real; solo agrega `PATCH /api/me` | Sección 3 |
 | — | Sin pondering, sin asesor por LLM, sin SSE de telemetría (ADR-10/11 del plan) | Eran opcionales (P2) y fuera del camino crítico; no hay flags que finjan tenerlos | `.env.example` |
 
-**Pendientes al congelar** (no se presentan como funcionalidad): `src/training/{self-play,benchmark,tuners}.js` y
-`src/worker/supervisor.js` siguen como stubs; `npm run mock` depende del árbitro simulado que entrega QA (P5).
+**Pendientes al congelar** (no se presentan como funcionalidad): `src/training/tuners.js` (ajuste automático de pesos)
+y `src/worker/supervisor.js` (reinicio automático del bot) siguen como stubs; eran P2 en el tablero del sprint.
 
 ## 6. Fuentes
 - Pascal Pons, *Solving Connect Four*: http://blog.gamesolver.org · https://github.com/PascalPons/connect4
