@@ -58,3 +58,11 @@ también la jugada del bot (mismo engine del torneo).
 - El frontend NUNCA calcula reglas: `legalMoves`, `status` y `winningCells` siempre vienen del servidor.
 - Doble click: el servidor es idempotente por turno; el segundo intento recibe 409.
 - `winningCells` usa [fila, columna] con fila 0 abajo (igual que el árbitro).
+
+## Cambios posteriores (acordados Juan + América)
+| Fecha | Cambio | Motivo |
+|---|---|---|
+| 05/11 | `POST /moves` acepta `turn` opcional (`{ "column": 3, "turn": 5 }`): número de turno que el cliente cree jugar (`moves.length + 1`). Si ya se procesó → 409 `not_your_turn`. | Sin él, un doble click que llega después de la respuesta del bot se aplicaría como jugada nueva. |
+| 05/11 | `botMove` es `{ column, decision }` en ambas respuestas (`decision` = `MoveDecision` del engine). | Mismo formato en crear y jugar; `decision` sirve para mostrar profundidad/tiempo. El frontend solo usa `column`. |
+| 05/11 | 422 `validation`: `first` distinto de `human`/`bot`, `column` o `turn` no enteros, JSON roto. 400 `illegal_move` queda para columna entera fuera de 0..7 o llena. 500 `internal` sin stack trace. | Separar "petición mal formada" de "jugada ilegal". |
+| 05/11 | Al terminar la partida `currentPlayer` es `null` y `legalMoves` es `[]`. | El frontend no debe ofrecer jugadas en una partida cerrada. |
