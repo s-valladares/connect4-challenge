@@ -407,3 +407,13 @@ FINISHED → CREATING (jugar de nuevo)
 - [ ] No se filtra TEAM_TOKEN ni se depende del árbitro para jugar localmente.
 
 **Conclusión:** la interfaz es un adaptador de presentación de un juego cuyo estado y motor residen en el backend. La independencia de la interfaz permite rediseñar React, añadir otro frontend o agregar un nuevo juego sin modificar las responsabilidades del cliente del árbitro oficial.
+
+## Delegación a la IA y verificación
+| Se delega a la IA | Cómo lo verifica un humano |
+|---|---|
+| Componentes y hooks de React a partir del contrato docs/API_LOCAL.md | Lectura del diff por la owner + partida completa manual + `npm test` en verde |
+| Pruebas de componentes (Testing Library) | Deben fallar si se rompe el flujo que dicen probar (no solo "renderiza") |
+| Estilos y layout responsive | Revisión visual en laptop y teléfono; capturas reales en docs/MANUAL.md |
+
+Riesgo conocido: la IA dibuja tableros con la fila 0 arriba (el contrato la define ABAJO) y permite doble click mientras el bot piensa. Se revisa explícitamente.
+Registro de lo que falló y cómo se detectó: `docs/AI_DECISIONS.md`.
