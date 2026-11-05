@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-background); color: var(--color-text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, select { font: inherit; }
+:focus-visible { outline: 3px solid var(--color-board); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
